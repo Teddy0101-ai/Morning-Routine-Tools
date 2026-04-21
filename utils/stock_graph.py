@@ -1,5 +1,4 @@
 import math
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -79,6 +78,45 @@ def get_logo_path() -> Path | None:
     return None
 
 
+def build_subplot_title(ticker: str, ytd_returns: dict, pe_ratios: dict) -> str:
+    if ticker.startswith("^") or ticker.startswith("."):
+        base = ticker
+        region = "Index"
+    elif ticker.endswith(".HK"):
+        base = ticker.replace(".HK", "")
+        region = "HK"
+    elif ticker.endswith(".SI"):
+        base = ticker.replace(".SI", "")
+        region = "SG"
+    elif ticker.endswith(".TW"):
+        base = ticker.replace(".TW", "")
+        region = "TW"
+    elif ticker.endswith(".JK"):
+        base = ticker.replace(".JK", "")
+        region = "ID"
+    elif ticker.endswith(".PA"):
+        base = ticker.replace(".PA", "")
+        region = "FP"
+    elif ticker.endswith(".DE"):
+        base = ticker.replace(".DE", "")
+        region = "GR"
+    elif ticker.endswith(".T"):
+        base = ticker.replace(".T", "")
+        region = "JP"
+    else:
+        base = ticker
+        region = "US"
+
+    yr = ytd_returns.get(ticker, np.nan)
+    ytd_str = "N/A" if pd.isna(yr) else ("flat" if abs(round(yr, 0)) < 0.5 else f"{round(yr, 0):+.0f}%")
+
+    pe_val = pe_ratios.get(ticker, np.nan)
+    pe_str = "" if pd.isna(pe_val) else f", {int(round(pe_val, 0))}x PE"
+
+    title_region_part = f" {region}" if region != "Index" else ""
+    return f"<b>{base}{title_region_part}</b><br><span style='font-size: 24px;'>{ytd_str} ytd{pe_str}</span>"
+
+
 def generate_chart(tickers, start_date, end_date):
     year_start = f"{end_date[:4]}-01-01"
     chart_start_date = start_date
@@ -110,7 +148,9 @@ def generate_chart(tickers, start_date, end_date):
     if chart_data_df.empty:
         raise ValueError("No data available for the chart date range.")
 
-    first_values = chart_data_df.apply(lambda x: x.dropna().iloc[0] if not x.dropna().empty else np.nan)
+    first_values = chart_data_df.apply(
+        lambda x: x.dropna().iloc[0] if not x.dropna().empty else np.nan
+    )
     valid_tickers = first_values.dropna().index
     if len(valid_tickers) == 0:
         raise ValueError("No valid tickers with data in the specified range.")
@@ -149,7 +189,9 @@ def generate_chart(tickers, start_date, end_date):
         except Exception:
             pe_ratios[ticker] = np.nan
 
-    last_values = percentage_change_df.apply(lambda x: x.dropna().iloc[-1] if not x.dropna().empty else np.nan)
+    last_values = percentage_change_df.apply(
+        lambda x: x.dropna().iloc[-1] if not x.dropna().empty else np.nan
+    )
     sorted_tickers = last_values.sort_values(ascending=False).index
 
     num_charts = len(sorted_tickers)
@@ -183,6 +225,8 @@ def generate_chart(tickers, start_date, end_date):
     h_spacing = 100
     top_margin = 200
     bottom_margin = 168
+    left_margin = 70
+    right_margin = 20
 
     fig_width = ncols * subplot_width + (ncols - 1) * h_spacing
     fig_height = nrows * subplot_height + (nrows - 1) * v_spacing + top_margin + bottom_margin
@@ -190,45 +234,7 @@ def generate_chart(tickers, start_date, end_date):
     horizontal_spacing = h_spacing / fig_width if ncols > 1 else 0
     vertical_spacing = v_spacing / fig_height if nrows > 1 else 0
 
-    subplot_titles = []
-
-    for ticker in sorted_tickers:
-        if ticker.startswith("^") or ticker.startswith("."):
-            base = ticker
-            region = "Index"
-        elif ticker.endswith(".HK"):
-            base = ticker.replace(".HK", "")
-            region = "HK"
-        elif ticker.endswith(".SI"):
-            base = ticker.replace(".SI", "")
-            region = "SG"
-        elif ticker.endswith(".TW"):
-            base = ticker.replace(".TW", "")
-            region = "TW"
-        elif ticker.endswith(".JK"):
-            base = ticker.replace(".JK", "")
-            region = "ID"
-        elif ticker.endswith(".PA"):
-            base = ticker.replace(".PA", "")
-            region = "FP"
-        elif ticker.endswith(".DE"):
-            base = ticker.replace(".DE", "")
-            region = "GR"
-        elif ticker.endswith(".T"):
-            base = ticker.replace(".T", "")
-            region = "JP"
-        else:
-            base = ticker
-            region = "US"
-
-        yr = ytd_returns.get(ticker, np.nan)
-        ytd_str = "N/A" if pd.isna(yr) else ("flat" if abs(round(yr, 0)) < 0.5 else f"{round(yr, 0):+.0f}%")
-        pe_val = pe_ratios.get(ticker, np.nan)
-        pe_str = "" if pd.isna(pe_val) else f", {int(round(pe_val, 0))}x PE"
-
-        title_region_part = f" {region}" if region != "Index" else ""
-        title = f"<b>{base}{title_region_part}</b><br><span style='font-size: 24px;'>{ytd_str} ytd{pe_str}</span>"
-        subplot_titles.append(title)
+    subplot_titles = [build_subplot_title(ticker, ytd_returns, pe_ratios) for ticker in sorted_tickers]
 
     total_subplots = nrows * ncols
     all_titles = subplot_titles + [""] * (total_subplots - len(subplot_titles))
@@ -246,6 +252,7 @@ def generate_chart(tickers, start_date, end_date):
     for i, ticker in enumerate(sorted_tickers):
         row = i // ncols + 1
         col = i % ncols + 1
+
         series = percentage_change_df[ticker].dropna()
         current_last_value = last_values.get(ticker, np.nan)
         color = "green" if pd.notna(current_last_value) and current_last_value > 0 else "red"
@@ -290,6 +297,7 @@ def generate_chart(tickers, start_date, end_date):
     else:
         parity = end_month.month % 2
         tick0_found = False
+        tick0 = start_dt.strftime("%Y-%m-%d")
         for m in months:
             if m.month % 2 == parity:
                 tick0 = m.strftime("%Y-%m-%d")
@@ -299,12 +307,7 @@ def generate_chart(tickers, start_date, end_date):
             tick0 = months[0].strftime("%Y-%m-%d") if not months.empty else start_dt.strftime("%Y-%m-%d")
         dtick = "M2"
 
-    if dtick == "M1":
-        freq = "MS"
-    elif dtick == "M2":
-        freq = "2MS"
-    else:
-        freq = "MS"
+    freq = "MS" if dtick == "M1" else "2MS"
 
     try:
         tickvals = pd.date_range(start=tick0, end=end_dt, freq=freq)
@@ -332,7 +335,7 @@ def generate_chart(tickers, start_date, end_date):
         year_label = ""
 
         is_first_for_year = year not in displayed_years
-        is_target_prev_year_tick = (year == target_year and closest_tick and date == closest_tick)
+        is_target_prev_year_tick = year == target_year and closest_tick and date == closest_tick
 
         if is_first_for_year or is_target_prev_year_tick:
             year_label = f"<br><span style='font-size:80%; color: gray;'>{year}</span>"
@@ -355,7 +358,7 @@ def generate_chart(tickers, start_date, end_date):
 
     fig.update_yaxes(ticksuffix="%")
     for r in range(1, nrows + 1):
-        fig.update_yaxes(title_text="Performance", row=r, col=1)
+        fig.update_yaxes(title_text=None, row=r, col=1)
         for c in range(2, ncols + 1):
             fig.update_yaxes(title_text=None, row=r, col=c)
 
@@ -365,7 +368,7 @@ def generate_chart(tickers, start_date, end_date):
         title_font=dict(family="Arial", color="black", size=40),
         title_x=0.5,
         title_y=title_y,
-        margin=dict(l=20, r=20, t=top_margin, b=bottom_margin),
+        margin=dict(l=left_margin, r=right_margin, t=top_margin, b=bottom_margin),
         font=dict(family="Arial", color="black", size=20),
         showlegend=True,
         legend=dict(
@@ -387,6 +390,17 @@ def generate_chart(tickers, start_date, end_date):
     for annotation in fig["layout"]["annotations"]:
         annotation["font"] = dict(family="Arial", color="black", size=36)
 
+    fig.add_annotation(
+        x=-0.055,
+        y=0.5,
+        xref="paper",
+        yref="paper",
+        text="Performance",
+        showarrow=False,
+        textangle=-90,
+        font=dict(family="Arial", color="black", size=20),
+    )
+
     fig.write_image(str(temp_chart_path))
 
     logo_path = get_logo_path()
@@ -395,12 +409,15 @@ def generate_chart(tickers, start_date, end_date):
         try:
             chart_img = Image.open(temp_chart_path)
             logo_img = Image.open(logo_path)
+
             max_logo_size = 200
             if logo_img.width > max_logo_size or logo_img.height > max_logo_size:
                 logo_img.thumbnail((max_logo_size, max_logo_size), Image.Resampling.LANCZOS)
+
             position = (0, chart_img.height - logo_img.height)
             chart_img.paste(logo_img, position, logo_img if logo_img.mode == "RGBA" else None)
             chart_img.save(output_path)
+
             if temp_chart_path.exists():
                 temp_chart_path.unlink()
         except Exception:
