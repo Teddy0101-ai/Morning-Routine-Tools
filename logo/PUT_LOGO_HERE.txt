@@ -1,0 +1,2 @@
+Put your real logo file here and name it exactly:
+logo.png
